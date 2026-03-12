@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
 from engine import CPopulation
 
 
@@ -19,6 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="BFF Emergent Complexity (C engine)")
     parser.add_argument("--epochs", type=int, default=6000)
     parser.add_argument("--population", type=int, default=1024)
+    parser.add_argument("--prog-len", type=int, default=64)
     parser.add_argument("--sample-every", type=int, default=50)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--output-dir", type=str, default=None)
@@ -35,7 +37,12 @@ def main() -> None:
         out_dir = Path("results") / ts
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pop = CPopulation(size=args.population, seed=seed, max_steps=args.max_steps)
+    pop = CPopulation(
+        size=args.population,
+        seed=seed,
+        max_steps=args.max_steps,
+        prog_len=args.prog_len,
+    )
 
     # Capture initial tape state
     init_dump = pop.dump_programs(top_n=30)
@@ -49,8 +56,10 @@ def main() -> None:
     compressibility_list = []
     all_steps_chunks = []
 
-    print(f"seed={seed}, pop={pop.size}, epochs={args.epochs}, "
-          f"max_steps={args.max_steps}, interactions={pop.size * args.epochs:,}")
+    print(
+        f"seed={seed}, pop={pop.size}, prog_len={args.prog_len}, epochs={args.epochs}, "
+        f"max_steps={args.max_steps}, interactions={pop.size * args.epochs:,}"
+    )
     print(f"output: {out_dir}")
     print("Epoch\tHOE\tTokens\tCompress\tMean ops\tEpochs/s")
     sys.stdout.flush()
@@ -87,7 +96,9 @@ def main() -> None:
             now = time.monotonic()
             rate = epoch / (now - t_start) if now > t_start else 0
             if now - last_log > 2.0 or epoch >= args.epochs:
-                print(f"{epoch}\t{hoe:.4f}\t{tokens}\t{cr:.4f}\t{mean_ops:.0f}\t{rate:.1f}")
+                print(
+                    f"{epoch}\t{hoe:.4f}\t{tokens}\t{cr:.4f}\t{mean_ops:.0f}\t{rate:.1f}"
+                )
                 sys.stdout.flush()
                 last_log = now
 
@@ -99,6 +110,7 @@ def main() -> None:
         npz_path,
         seed=seed,
         population=args.population,
+        prog_len=args.prog_len,
         max_steps=args.max_steps,
         steps=all_steps,
         sample_epochs=np.array(sample_epochs),
@@ -106,7 +118,9 @@ def main() -> None:
         tokens=np.array(tokens_list, dtype=np.int64),
         compressibility=np.array(compressibility_list),
     )
-    print(f"Data saved to {npz_path} ({elapsed:.1f}s, {args.epochs/elapsed:.0f} epochs/s)")
+    print(
+        f"Data saved to {npz_path} ({elapsed:.1f}s, {args.epochs / elapsed:.0f} epochs/s)"
+    )
 
     dump = pop.dump_programs(top_n=40)
     dump_path = out_dir / f"tape_final_s{seed}.txt"

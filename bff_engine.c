@@ -4,8 +4,10 @@
  *
  * Each cell is (uint8_t value, int64_t token_id).
  * The soup is a flat array: soup[pop_size * prog_len] of cells.
- * One interaction: pick two programs, concatenate into 128-byte tape,
+ * One interaction: pick two programs, concatenate into tape of 2*prog_len,
  * run BFF, split back. One epoch = pop_size interactions.
+ *
+ * prog_len is now a runtime parameter (default 64 in the Python wrapper).
  */
 
 #include <stdint.h>
@@ -13,9 +15,6 @@
 #include <string.h>
 #include <omp.h>
 
-#define PROG_LEN 64
-#define TAPE_LEN 128  /* 2 * PROG_LEN */
-#define TAPE_MOD 256
 #define DEFAULT_MAX_STEPS 16384
 
 typedef struct {
@@ -112,26 +111,27 @@ static uint32_t rng_below(Rng *r, uint32_t n) {
  * Sequential — use run_epochs for the multi-threaded batch variant.
  */
 void run_epoch(Cell *soup, int *steps_out, int pop_size,
-               int max_steps, uint64_t epoch_seed) {
+               int prog_len, int max_steps, uint64_t epoch_seed) {
+    int tape_len = 2 * prog_len;
     Rng rng;
     rng_seed(&rng, epoch_seed);
-    Cell tape[TAPE_LEN];
+    Cell tape[tape_len];
 
     for (int k = 0; k < pop_size; k++) {
         int i = rng_below(&rng, pop_size);
         int j;
         do { j = rng_below(&rng, pop_size); } while (j == i);
 
-        Cell *pi = &soup[i * PROG_LEN];
-        Cell *pj = &soup[j * PROG_LEN];
+        Cell *pi = &soup[i * prog_len];
+        Cell *pj = &soup[j * prog_len];
 
-        memcpy(tape, pi, PROG_LEN * sizeof(Cell));
-        memcpy(tape + PROG_LEN, pj, PROG_LEN * sizeof(Cell));
+        memcpy(tape, pi, prog_len * sizeof(Cell));
+        memcpy(tape + prog_len, pj, prog_len * sizeof(Cell));
 
-        steps_out[k] = run_bff(tape, TAPE_LEN, max_steps);
+        steps_out[k] = run_bff(tape, tape_len, max_steps);
 
-        memcpy(pi, tape, PROG_LEN * sizeof(Cell));
-        memcpy(pj, tape + PROG_LEN, PROG_LEN * sizeof(Cell));
+        memcpy(pi, tape, prog_len * sizeof(Cell));
+        memcpy(pj, tape + prog_len, prog_len * sizeof(Cell));
     }
 }
 
@@ -146,12 +146,13 @@ void run_epoch(Cell *soup, int *steps_out, int pop_size,
  * base_seed: seeds for epochs are base_seed + epoch_index
  */
 void run_epochs(Cell *soup, int *steps_out, int pop_size,
-                int max_steps, int n_epochs, uint64_t base_seed) {
+                int prog_len, int max_steps, int n_epochs, uint64_t base_seed) {
+    int tape_len = 2 * prog_len;
 
     if (omp_get_max_threads() <= 1) {
         for (int e = 0; e < n_epochs; e++)
             run_epoch(soup, steps_out + e * pop_size, pop_size,
-                      max_steps, base_seed + e);
+                      prog_len, max_steps, base_seed + e);
         return;
     }
 
@@ -160,7 +161,7 @@ void run_epochs(Cell *soup, int *steps_out, int pop_size,
 
     #pragma omp parallel
     {
-        Cell tape[TAPE_LEN];
+        Cell tape[tape_len];
 
         for (int e = 0; e < n_epochs; e++) {
             #pragma omp single
@@ -176,16 +177,16 @@ void run_epochs(Cell *soup, int *steps_out, int pop_size,
 
             #pragma omp for schedule(static)
             for (int k = 0; k < pop_size; k++) {
-                Cell *pi = &soup[pair_i[k] * PROG_LEN];
-                Cell *pj = &soup[pair_j[k] * PROG_LEN];
+                Cell *pi = &soup[pair_i[k] * prog_len];
+                Cell *pj = &soup[pair_j[k] * prog_len];
 
-                memcpy(tape, pi, PROG_LEN * sizeof(Cell));
-                memcpy(tape + PROG_LEN, pj, PROG_LEN * sizeof(Cell));
+                memcpy(tape, pi, prog_len * sizeof(Cell));
+                memcpy(tape + prog_len, pj, prog_len * sizeof(Cell));
 
-                steps_out[e * pop_size + k] = run_bff(tape, TAPE_LEN, max_steps);
+                steps_out[e * pop_size + k] = run_bff(tape, tape_len, max_steps);
 
-                memcpy(pi, tape, PROG_LEN * sizeof(Cell));
-                memcpy(pj, tape + PROG_LEN, PROG_LEN * sizeof(Cell));
+                memcpy(pi, tape, prog_len * sizeof(Cell));
+                memcpy(pj, tape + prog_len, prog_len * sizeof(Cell));
             }
             /* implicit barrier: all interactions done before next epoch */
         }
@@ -199,10 +200,10 @@ void run_epochs(Cell *soup, int *steps_out, int pop_size,
  * Exported: initialize soup with random bytes.
  * token_ids are sequential starting from 0.
  */
-void init_soup(Cell *soup, int pop_size, uint64_t seed) {
+void init_soup(Cell *soup, int pop_size, int prog_len, uint64_t seed) {
     Rng rng;
     rng_seed(&rng, seed);
-    int total = pop_size * PROG_LEN;
+    int total = pop_size * prog_len;
     for (int i = 0; i < total; i++) {
         soup[i].value = rng_next(&rng) & 0xFF;
         soup[i].token_id = i;

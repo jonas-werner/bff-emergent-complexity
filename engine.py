@@ -17,8 +17,6 @@ import numpy as np
 _dir = Path(__file__).parent
 _lib = ctypes.CDLL(str(_dir / "bff_engine.so"))
 
-PROG_LEN = 64
-
 
 class CellStruct(ctypes.Structure):
     _fields_ = [("value", ctypes.c_uint8), ("token_id", ctypes.c_int64)]
@@ -26,15 +24,31 @@ class CellStruct(ctypes.Structure):
 
 CellArray = ctypes.POINTER(CellStruct)
 
-_lib.init_soup.argtypes = [CellArray, ctypes.c_int, ctypes.c_uint64]
+# init_soup(soup, pop_size, prog_len, seed)
+_lib.init_soup.argtypes = [CellArray, ctypes.c_int, ctypes.c_int, ctypes.c_uint64]
 _lib.init_soup.restype = None
 
-_lib.run_epoch.argtypes = [CellArray, ctypes.POINTER(ctypes.c_int),
-                           ctypes.c_int, ctypes.c_int, ctypes.c_uint64]
+# run_epoch(soup, steps_out, pop_size, prog_len, max_steps, epoch_seed)
+_lib.run_epoch.argtypes = [
+    CellArray,
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint64,
+]
 _lib.run_epoch.restype = None
 
-_lib.run_epochs.argtypes = [CellArray, ctypes.POINTER(ctypes.c_int),
-                            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint64]
+# run_epochs(soup, steps_out, pop_size, prog_len, max_steps, n_epochs, base_seed)
+_lib.run_epochs.argtypes = [
+    CellArray,
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint64,
+]
 _lib.run_epochs.restype = None
 
 _lib.count_unique_tokens.argtypes = [CellArray, ctypes.c_int]
@@ -45,23 +59,35 @@ _lib.get_values.restype = None
 
 
 class CPopulation:
-
-    def __init__(self, size: int, seed: int | None = None, max_steps: int = 16384):
+    def __init__(
+        self,
+        size: int,
+        seed: int | None = None,
+        max_steps: int = 16384,
+        prog_len: int = 64,
+    ):
         self.size = size
         self.max_steps = max_steps
-        self.total_cells = size * PROG_LEN
+        self.prog_len = prog_len
+        self.total_cells = size * prog_len
         self._rng = random.Random(seed)
         self._epoch_counter = 0
 
         self._soup = (CellStruct * self.total_cells)()
         init_seed = seed if seed is not None else self._rng.randint(0, 2**63)
-        _lib.init_soup(self._soup, size, ctypes.c_uint64(init_seed))
+        _lib.init_soup(self._soup, size, prog_len, ctypes.c_uint64(init_seed))
 
     def run_epoch(self) -> List[int]:
         steps = (ctypes.c_int * self.size)()
         epoch_seed = self._rng.randint(0, 2**63)
-        _lib.run_epoch(self._soup, steps, self.size, self.max_steps,
-                       ctypes.c_uint64(epoch_seed))
+        _lib.run_epoch(
+            self._soup,
+            steps,
+            self.size,
+            self.prog_len,
+            self.max_steps,
+            ctypes.c_uint64(epoch_seed),
+        )
         self._epoch_counter += 1
         return list(steps)
 
@@ -69,8 +95,15 @@ class CPopulation:
         total = n * self.size
         steps = (ctypes.c_int * total)()
         base_seed = self._rng.randint(0, 2**63)
-        _lib.run_epochs(self._soup, steps, self.size, self.max_steps, n,
-                        ctypes.c_uint64(base_seed))
+        _lib.run_epochs(
+            self._soup,
+            steps,
+            self.size,
+            self.prog_len,
+            self.max_steps,
+            n,
+            ctypes.c_uint64(base_seed),
+        )
         self._epoch_counter += n
         return np.frombuffer(steps, dtype=np.int32).reshape(n, self.size)
 
@@ -88,7 +121,7 @@ class CPopulation:
         Groups programs by dominant lineage token, showing structural
         similarity among descendants of the same replicator.
         """
-        BFF_CHARS = set(b'<>{}-+.,[]')
+        BFF_CHARS = set(b"<>{}-+.,[]")
 
         total_interactions = self._epoch_counter * self.size
         n_unique = self.unique_tokens()
@@ -97,9 +130,9 @@ class CPopulation:
         all_tids = Counter()
         programs = []
         for p in range(self.size):
-            offset = p * PROG_LEN
-            vals = bytes(self._soup[offset + i].value for i in range(PROG_LEN))
-            tids = [self._soup[offset + i].token_id for i in range(PROG_LEN)]
+            offset = p * self.prog_len
+            vals = bytes(self._soup[offset + i].value for i in range(self.prog_len))
+            tids = [self._soup[offset + i].token_id for i in range(self.prog_len)]
             programs.append((vals, tids))
             all_tids.update(tids)
 
@@ -109,16 +142,18 @@ class CPopulation:
         lineages: dict[int, list[bytes]] = {}
         for vals, tids in programs:
             prog_tids = Counter(tids)
-            best_tid = max(top_tokens & set(prog_tids.keys()),
-                           key=lambda t: prog_tids[t],
-                           default=tids[0])
+            best_tid = max(
+                top_tokens & set(prog_tids.keys()),
+                key=lambda t: prog_tids[t],
+                default=tids[0],
+            )
             lineages.setdefault(best_tid, []).append(vals)
 
         ranked = sorted(lineages.items(), key=lambda kv: -len(kv[1]))
 
         lines = [
             f"{total_interactions:,} interactions",
-            f"{n_unique} unique tokens, {self.size} programs",
+            f"{n_unique} unique tokens, {self.size} programs, prog_len={self.prog_len}",
         ]
 
         shown = 0
@@ -126,18 +161,18 @@ class CPopulation:
             if shown >= top_n:
                 break
             tid_hex = f"{tid & 0xFFFF:04X}"
-            for prog_bytes in members[:min(3, top_n - shown)]:
+            for prog_bytes in members[: min(3, top_n - shown)]:
                 rendered = []
                 for b in prog_bytes:
                     if b in BFF_CHARS:
                         rendered.append(chr(b))
                     else:
-                        rendered.append(' ')
-                tape_str = ''.join(rendered).rstrip()
+                        rendered.append(" ")
+                tape_str = "".join(rendered).rstrip()
                 lines.append(f"{len(members):5d}: {tid_hex} {tape_str}")
                 shown += 1
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     def higher_order_entropy(self) -> float:
         data = self.get_values()
