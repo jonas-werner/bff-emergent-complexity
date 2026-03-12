@@ -1,0 +1,38 @@
+# Compiled shared library (recompile with: make or gcc command in README)
+*.so
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Local-only files (blog drafts, archived results, transcripts)
+local_only/
+
+# Experiment results (too large for git; use extract_summary.py to regenerate CSV)
+results/
+*.npz
+
+# Tarballs
+*.tgz
+*.tar.gz
+
+# Logs
+logs/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# OpenMP bundled library (cluster-specific)
+libgomp.so.1
