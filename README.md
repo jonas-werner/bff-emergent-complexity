@@ -2,13 +2,15 @@
 
 A replicable implementation of the **Computational Life** experiment by Blaise Agüera y Arcas et al., where self-replicating programs spontaneously emerge from random noise with no fitness function.
 
-For the blog post referring to this repo, please visit <https://jonamiki.com/posts/bff-emergent-complexity-experiment/>
+**Blog posts:**
+
+This code repo is referenced in two of my blog posts. They contain a lot more detail so please refer to them if you're interested: 
+
+- [BFF - Emergent Complexity experiment](https://jonamiki.com/posts/bff-emergent-complexity-experiment/) — initial results on a desktop PC (5 seeds)
+- [BFF at Scale - 3,850 Runs Across Two HPC Clusters](https://jonamiki.com/posts/bff-emergent-complexity-cluster-testing/) — 3,850 experiments across two Slurm clusters with population and program length sweeps
 
 **Paper:** [Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction](https://arxiv.org/abs/2406.19108) (arXiv:2406.19108)
 
-**Blog posts:**
-- [BFF - Emergent Complexity experiment](https://jonamiki.com/posts/bff-emergent-complexity-experiment/) — initial results on a desktop PC (5 seeds)
-- [BFF at Scale - 3,850 Runs Across Two HPC Clusters](https://jonamiki.com/posts/bff-emergent-complexity-cluster-testing/) — 3,850 experiments across two Slurm clusters with population and program length sweeps
 
 ## What this does
 
